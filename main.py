@@ -27,15 +27,74 @@ SEND_PREFIX = '536'
 
 
 def append_to_log(data, file_path):
-    with open(file_path, 'a') as f:
-        json.dump(data, f)
-        f.write('\n')
+    try:
+        with open(file_path, 'a') as f:
+            json.dump(data, f)
+            f.write('\n')
+        print(f"[LOG] Appended data to {file_path}")
+    except Exception as e:
+        print(f"[ERROR] Failed to append log: {e}")
 
 
-def save_losses(lost_dict, file_path):
-    if lost_dict:  # Only save if there is data
-        with open(file_path, 'w') as f:
-            json.dump(lost_dict, f)
+def save_losses(minute_key, sent_packets, received_packets, file_path):
+    """
+    Сохраняет потери в формате:
+    {
+        "YYYY-MM-DD HH:MM": {"packets": int, "reached": int, "losses": float}, ...
+    }
+    """
+    # Загружаем старые данные, если есть
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            try:
+                lost_by_minute = json.load(f)
+            except json.JSONDecodeError:
+                lost_by_minute = {}
+    else:
+        lost_by_minute = {}
+
+    # Обновляем для текущей минуты
+    existing = lost_by_minute.get(minute_key, {"packets": 0, "reached": 0, "losses": 0.0})
+    existing['packets'] += sent_packets
+    existing['reached'] += received_packets
+    existing['losses'] = round(
+        100 * (existing['packets'] - existing['reached']) / existing['packets'], 2
+    ) if existing['packets'] > 0 else 0.0
+
+    lost_by_minute[minute_key] = existing
+
+    # Записываем обратно
+    with open(file_path, 'w') as f:
+        json.dump(lost_by_minute, f, indent=2)
+
+
+# Обновленная запись потерь пакетов
+def update_losses(lost_by_minute, sent, reached):
+    losses_percent = round((sent - reached) / sent * 100, 2) if sent else 0
+    minute_key = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lost_by_minute[minute_key] = {
+        "packets": sent,
+        "reached": reached,
+        "losses": losses_percent
+    }
+    print(f"[LOSS] {minute_key}: {lost_by_minute[minute_key]}")
+    return lost_by_minute
+
+
+def zip_files(zip_path, files):
+    try:
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for src, arcname in files:
+                if os.path.exists(src):
+                    zipf.write(src, arcname)
+                    print(f"[ZIP] Added {src} as {arcname}")
+                else:
+                    print(f"[ZIP] File not found: {src}")
+        print(f"[ZIP] Created zip {zip_path}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to zip files: {e}")
+        return False
 
 
 async def send_to_server(zip_path):
@@ -111,91 +170,81 @@ async def monitor_host(host):
     current_stamp = datetime.now().strftime("%Y%m%d_%H")
     current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
     current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
+    os.makedirs(DATA_DIR, exist_ok=True)
 
-    # Ensure current log exists
     if not os.path.exists(current_log_file):
         open(current_log_file, 'a').close()
+        print(f"[INFO] Created log file {current_log_file}")
 
-    # Load existing losses if exists
     lost_by_minute = {}
     if os.path.exists(current_losses_file):
         with open(current_losses_file, 'r') as f:
             lost_by_minute = json.load(f)
+        print(f"[INFO] Loaded existing losses from {current_losses_file}")
 
     last_trace_time = time.time()
     last_rotation_time = time.time()
 
     while True:
         start_time = time.time()
-
-        # Одиночный пинг каждые 10 секунд
         single_ping = await async_ping(host, count=1)
-        print(f"Single ping: {single_ping}")
+        print(f"[PING] Single ping: {single_ping}")
         append_to_log(single_ping, current_log_file)
 
-        # Calculate lost for single ping
-        lost_single = 1 if single_ping['avg_ms'] is None else 0
-        if lost_single > 0:
-            minute_key = datetime.now().strftime("%Y-%m-%d %H:%M")
-            lost_by_minute[minute_key] = lost_by_minute.get(minute_key, 0) + lost_single
-            save_losses(lost_by_minute, current_losses_file)
+        # Update losses
+        sent = 1
+        reached = 0 if single_ping['avg_ms'] is None else 1
+        lost_by_minute = update_losses(lost_by_minute, sent, reached)
+        minute_key = datetime.now().strftime("%Y-%m-%d %H:%M")
+        save_losses(minute_key, sent, reached, current_losses_file)
 
-        if single_ping['avg_ms'] is None:  # Если одиночный пинг не прошел
+        # Full ping if lost
+        if single_ping['avg_ms'] is None:
             full_ping = await async_ping(host, count=4)
-            print(f"Full ping: {full_ping}")
+            print(f"[PING] Full ping: {full_ping}")
             append_to_log(full_ping, current_log_file)
+            sent = 4
+            reached = len(full_ping['times_ms'])
+            lost_by_minute = update_losses(lost_by_minute, sent, reached)
+            save_losses(minute_key, sent, reached, current_losses_file)
 
-            # Calculate lost for full ping
-            lost_full = 4 - len(full_ping['times_ms'])
-            if lost_full > 0:
-                minute_key = datetime.now().strftime("%Y-%m-%d %H:%M")
-                lost_by_minute[minute_key] = lost_by_minute.get(minute_key, 0) + lost_full
-                save_losses(lost_by_minute, current_losses_file)
-
-            if len(full_ping['times_ms']) < 4:  # Если есть хотя бы одна потеря
+            if reached < 4:
                 trace_result = await async_trace(host)
-                print(f"Trace due to packet loss: {trace_result}")
+                print(f"[TRACE] Due to packet loss: {trace_result}")
                 append_to_log(trace_result, current_log_file)
 
-        # Проверка на каждые 5 минут для отдельного trace
-        current_time = time.time()
-        if current_time - last_trace_time >= 300:  # 5 минут = 300 секунд
+        # Periodic trace every 5 minutes
+        if time.time() - last_trace_time >= 300:
             trace_result = await async_trace(host)
-            print(f"Periodic trace: {trace_result}")
+            print(f"[TRACE] Periodic trace: {trace_result}")
             append_to_log(trace_result, current_log_file)
-            last_trace_time = current_time
+            last_trace_time = time.time()
 
-        # Check for rotation every hour
-        if current_time - last_rotation_time >= 3600:
-            # Save losses (though already saved if changed)
-            save_losses(lost_by_minute, current_losses_file)
-
-            # Create zip in sending and delete originals
-            stamp = current_stamp  # Use the current one before updating
-            zip_name = f'archive_{stamp}.zip'
+        # Hourly rotation
+        if time.time() - last_rotation_time >= 3600:
+            os.makedirs(SENDING_DIR, exist_ok=True)
+            zip_name = f'archive_{current_stamp}.zip'
             zip_path = os.path.join(SENDING_DIR, zip_name)
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                zipf.write(current_log_file, os.path.basename(current_log_file))
-                if os.path.exists(current_losses_file):
-                    zipf.write(current_losses_file, os.path.basename(current_losses_file))
+            files_to_zip = [
+                (current_log_file, os.path.basename(current_log_file)),
+                (current_losses_file, os.path.basename(current_losses_file))
+            ]
+            if zip_files(zip_path, files_to_zip):
+                for f, _ in files_to_zip:
+                    if os.path.exists(f):
+                        os.remove(f)
+                        print(f"[INFO] Deleted original file {f}")
 
-            # Delete originals
-            os.remove(current_log_file)
-            if os.path.exists(current_losses_file):
-                os.remove(current_losses_file)
-
-            # New stamp and files
             current_stamp = datetime.now().strftime("%Y%m%d_%H")
             current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
             current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
             open(current_log_file, 'a').close()
             lost_by_minute = {}
-            last_rotation_time = current_time
+            last_rotation_time = time.time()
 
-        # Sleep с учетом времени выполнения
+        # Sleep with adjustment
         elapsed = time.time() - start_time
-        sleep_time = max(0.0, 10.0 - elapsed)
-        await asyncio.sleep(sleep_time)
+        await asyncio.sleep(max(0.0, 10.0 - elapsed))
 
 
 async def periodic_sender():
