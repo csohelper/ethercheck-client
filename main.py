@@ -6,6 +6,7 @@ import time
 import zipfile
 from datetime import datetime
 
+from client import send_to_server
 from nettools import async_ping, async_trace  # async врапперы из nettools
 
 DATA_DIR = 'data'
@@ -67,34 +68,6 @@ def zip_files(zip_path, files):
         return False
 
 
-async def send_to_server(zip_path) -> bool:
-    """
-    Отправка файла на сервер.
-    Возвращает True только если отправка действительно успешна.
-    """
-    print(f"[SEND] Attempting to send {zip_path} to server")
-    try:
-        # TODO: Здесь должна быть реальная логика отправки на сервер
-        # Например: async with aiohttp.ClientSession() as session:
-        #              async with session.post(url, data=...) as resp:
-        #                  return resp.status == 200
-
-        # ВРЕМЕННАЯ ЗАГЛУШКА: имитируем неудачу отправки
-        # Измените на True когда добавите реальную отправку
-        success = True
-
-        if success:
-            print(f"[SEND] Successfully sent {zip_path} to server")
-            return True
-        else:
-            print(f"[SEND] Failed to send {zip_path} - server not configured")
-            return False
-
-    except Exception as e:
-        print(f"[ERROR] Exception while sending {zip_path}: {e}")
-        return False
-
-
 def recover():
     os.makedirs(SENDING_DIR, exist_ok=True)
 
@@ -131,16 +104,24 @@ async def continuous_ping(host, log_file, losses_file):
     """Бесконечный цикл пингов каждые 2 сек до восстановления"""
     print("[PING LOOP] Starting continuous ping until connection restores")
     while True:
-        ping_res = await async_ping(host, count=1)
+
+        # Выполняем 10 пингов за раз
+        ping_res = await async_ping(host, count=10)
         append_to_log(ping_res, log_file)
-        sent = 1
-        reached = 0 if ping_res['avg_ms'] is None else 1
+
+        # Сколько отправлено и успешно получено?
+        sent = 10
+        reached = len(ping_res['times_ms'])  # сколько ответило
+
         minute_key = datetime.now().strftime("%Y-%m-%d %H:%M")
         save_losses(minute_key, sent, reached, losses_file)
+
+        # Если ХОТЯ БЫ ОДИН пинг успешен — связь восстановлена
         if reached > 0:
             print("[PING LOOP] Connection restored!")
             break
-        await asyncio.sleep(2)
+
+        await asyncio.sleep(1)
 
 
 async def monitor_host(host):
