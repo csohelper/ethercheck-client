@@ -68,8 +68,31 @@ def zip_files(zip_path, files):
 
 
 async def send_to_server(zip_path) -> bool:
-    print(f"[SEND] Sending {zip_path} to server")
-    return True  # Заглушка
+    """
+    Отправка файла на сервер.
+    Возвращает True только если отправка действительно успешна.
+    """
+    print(f"[SEND] Attempting to send {zip_path} to server")
+    try:
+        # TODO: Здесь должна быть реальная логика отправки на сервер
+        # Например: async with aiohttp.ClientSession() as session:
+        #              async with session.post(url, data=...) as resp:
+        #                  return resp.status == 200
+
+        # ВРЕМЕННАЯ ЗАГЛУШКА: имитируем неудачу отправки
+        # Измените на True когда добавите реальную отправку
+        success = True
+
+        if success:
+            print(f"[SEND] Successfully sent {zip_path} to server")
+            return True
+        else:
+            print(f"[SEND] Failed to send {zip_path} - server not configured")
+            return False
+
+    except Exception as e:
+        print(f"[ERROR] Exception while sending {zip_path}: {e}")
+        return False
 
 
 def recover():
@@ -261,14 +284,28 @@ async def monitor_host(host):
 
 
 async def periodic_sender():
+    """
+    Периодически проверяет папку sending и пытается отправить архивы на сервер.
+    Перемещает в sent только успешно отправленные файлы.
+    """
     os.makedirs(SENT_DIR, exist_ok=True)
     while True:
         await asyncio.sleep(60)
-        for f in os.listdir(SENDING_DIR):
-            if f.endswith('.zip'):
-                zip_path = os.path.join(SENDING_DIR, f)
-                if await send_to_server(zip_path):
-                    shutil.move(zip_path, os.path.join(SENT_DIR, f))
+
+        zip_files = [f for f in os.listdir(SENDING_DIR) if f.endswith('.zip')]
+        if zip_files:
+            print(f"[SENDER] Found {len(zip_files)} archive(s) to send")
+
+        for f in zip_files:
+            zip_path = os.path.join(SENDING_DIR, f)
+            print(f"[SENDER] Processing {f}")
+
+            if await send_to_server(zip_path):
+                dest_path = os.path.join(SENT_DIR, f)
+                shutil.move(zip_path, dest_path)
+                print(f"[SENDER] Moved {f} to sent directory")
+            else:
+                print(f"[SENDER] Keeping {f} in sending directory for retry")
 
 
 async def main(host):
