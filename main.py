@@ -18,7 +18,7 @@ def append_to_log(data, file_path):
         with open(file_path, 'a') as f:
             json.dump(data, f)
             f.write('\n')
-        print(f"[LOG] Appended data to {file_path}")
+        # print(f"[LOG] Appended data to {file_path}")
     except Exception as e:
         print(f"[ERROR] Failed to append log: {e}")
 
@@ -115,7 +115,7 @@ async def continuous_ping(host, log_file, losses_file):
 
 
 async def monitor_host(host):
-    current_stamp = datetime.now().strftime("%Y%m%d_%H")
+    current_stamp = datetime.now().strftime("%Y%m%d_%H_%M")
     current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
     current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -239,7 +239,7 @@ async def monitor_host(host):
                     if os.path.exists(f):
                         os.remove(f)
 
-            current_stamp = datetime.now().strftime("%Y%m%d_%H")
+            current_stamp = datetime.now().strftime("%Y%m%d_%H_%M")
             current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
             current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
             open(current_log_file, 'a').close()
