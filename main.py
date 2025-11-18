@@ -19,7 +19,9 @@ def append_to_log(data, file_path):
         with open(file_path, 'a') as f:
             json.dump(data, f)
             f.write('\n')
-        # print(f"[LOG] Appended data to {file_path}")
+            f.flush()  # Force flush to disk
+            print(json.dumps(data, indent=4))
+        print(f"[LOG] Appended data to {file_path}, size now: {os.stat(file_path).st_size} bytes")
     except Exception as e:
         print(f"[ERROR] Failed to append log: {e}")
 
@@ -71,11 +73,11 @@ def zip_files(zip_path, files):
 def recover():
     os.makedirs(SENDING_DIR, exist_ok=True)
 
-    # Собираем все файлы log_ и losses_ из DATA_DIR и SENDING_DIR
+    # Собираем все файлы ping_, trace_ и losses_ из DATA_DIR и SENDING_DIR
     for dirpath in [DATA_DIR, SENDING_DIR]:
         if not os.path.exists(dirpath):
             continue
-        files = [f for f in os.listdir(dirpath) if f.startswith('log_') or f.startswith('losses_')]
+        files = [f for f in os.listdir(dirpath) if f.startswith(('ping_', 'trace_', 'losses_'))]
 
         # Группируем файлы по штампу времени
         stamps = {}
@@ -83,7 +85,7 @@ def recover():
             parts = f.split('_', 1)
             if len(parts) < 2:
                 continue
-            # Берем всё после log_ или losses_ до расширения
+            # Берем всё после ping_/trace_/losses_ до расширения
             stamp = parts[1].rsplit('.', 1)[0]
             stamps.setdefault(stamp, []).append(f)
 
@@ -100,14 +102,14 @@ def recover():
                 print(f"[RECOVER] Created archive {zip_path}")
 
 
-async def continuous_ping(host, log_file, losses_file):
+async def continuous_ping(host, ping_file, losses_file):
     """Бесконечный цикл пингов каждые 2 сек до восстановления"""
     print("[PING LOOP] Starting continuous ping until connection restores")
     while True:
 
         # Выполняем 10 пингов за раз
         ping_res = await async_ping(host, count=10)
-        append_to_log(ping_res, log_file)
+        append_to_log(ping_res, ping_file)
 
         # Сколько отправлено и успешно получено?
         sent = 10
@@ -127,14 +129,19 @@ async def continuous_ping(host, log_file, losses_file):
 async def monitor_host(host):
     # ИЗМЕНЕНИЕ: единый формат YYYY-MM-DD_HH-MM для всех файлов
     current_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
+    current_ping_file = os.path.join(DATA_DIR, f'ping_{current_stamp}.jsonl')
+    current_trace_file = os.path.join(DATA_DIR, f'trace_{current_stamp}.jsonl')
     current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(SENDING_DIR, exist_ok=True)
 
-    if not os.path.exists(current_log_file):
-        open(current_log_file, 'a').close()
-        print(f"[INFO] Created log file {current_log_file}")
+    if not os.path.exists(current_ping_file):
+        open(current_ping_file, 'a').close()
+        print(f"[INFO] Created ping file {current_ping_file}")
+
+    if not os.path.exists(current_trace_file):
+        open(current_trace_file, 'a').close()
+        print(f"[INFO] Created trace file {current_trace_file}")
 
     lost_by_minute = {}
     if os.path.exists(current_losses_file):
@@ -148,7 +155,7 @@ async def monitor_host(host):
     current_minute = datetime.now().strftime("%Y-%m-%d %H:%M")
     minute_sent = 0
     minute_reached = 0
-    last_trace_time = time.time()
+    last_trace_time = 0
     last_rotation_time = time.time()
 
     while True:
@@ -156,7 +163,7 @@ async def monitor_host(host):
 
         # 1. Single ping
         single_ping = await async_ping(host, count=1)
-        append_to_log(single_ping, current_log_file)
+        append_to_log(single_ping, current_ping_file)
         minute_sent += 1
         minute_reached += 1 if single_ping['avg_ms'] is not None else 0
 
@@ -174,7 +181,7 @@ async def monitor_host(host):
         if single_ping['avg_ms'] is None:
             # Полный пинг 4 пакета
             full_ping = await async_ping(host, count=4)
-            append_to_log(full_ping, current_log_file)
+            append_to_log(full_ping, current_ping_file)
             sent = 4
             reached = len(full_ping['times_ms'])
             minute_sent += sent
@@ -193,13 +200,13 @@ async def monitor_host(host):
             if reached < 4:
                 # Трассировка
                 trace_result = await async_trace(host)
-                append_to_log(trace_result, current_log_file)
+                append_to_log(trace_result, current_trace_file)
 
                 # Аварийный цикл пинга каждые 2 секунды
                 print("[PING LOOP] Starting continuous ping until connection restores")
                 while True:
                     ping_res = await async_ping(host, count=1)
-                    append_to_log(ping_res, current_log_file)
+                    append_to_log(ping_res, current_ping_file)
                     minute_sent += 1
                     minute_reached += 1 if ping_res['avg_ms'] is not None else 0
 
@@ -220,9 +227,12 @@ async def monitor_host(host):
 
         # 4. Периодический trace каждые 5 минут
         if time.time() - last_trace_time >= 300:
+            print('Tracing')
             trace_result = await async_trace(host)
-            append_to_log(trace_result, current_log_file)
+            append_to_log(trace_result, current_trace_file)
             last_trace_time = time.time()
+            print(trace_result)
+            print('Traced')
 
         # 5. Проверка смены минуты
         new_minute = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -243,7 +253,8 @@ async def monitor_host(host):
             zip_name = f'archive_{current_stamp}.zip'
             zip_path = os.path.join(SENDING_DIR, zip_name)
             files_to_zip = [
-                (current_log_file, os.path.basename(current_log_file)),
+                (current_ping_file, os.path.basename(current_ping_file)),
+                (current_trace_file, os.path.basename(current_trace_file)),
                 (current_losses_file, os.path.basename(current_losses_file))
             ]
             if zip_files(zip_path, files_to_zip):
@@ -253,9 +264,11 @@ async def monitor_host(host):
 
             # ИЗМЕНЕНИЕ: новая временная метка в том же формате
             current_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-            current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
+            current_ping_file = os.path.join(DATA_DIR, f'ping_{current_stamp}.jsonl')
+            current_trace_file = os.path.join(DATA_DIR, f'trace_{current_stamp}.jsonl')
             current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
-            open(current_log_file, 'a').close()
+            open(current_ping_file, 'a').close()
+            open(current_trace_file, 'a').close()
             lost_by_minute = {}
             last_rotation_time = time.time()
 
