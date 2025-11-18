@@ -67,7 +67,7 @@ def zip_files(zip_path, files):
         return False
 
 
-async def send_to_server(zip_path):
+async def send_to_server(zip_path) -> bool:
     print(f"[SEND] Sending {zip_path} to server")
     return True  # Заглушка
 
@@ -77,6 +77,8 @@ def recover():
 
     # Собираем все файлы log_ и losses_ из DATA_DIR и SENDING_DIR
     for dirpath in [DATA_DIR, SENDING_DIR]:
+        if not os.path.exists(dirpath):
+            continue
         files = [f for f in os.listdir(dirpath) if f.startswith('log_') or f.startswith('losses_')]
 
         # Группируем файлы по штампу времени
@@ -85,7 +87,8 @@ def recover():
             parts = f.split('_', 1)
             if len(parts) < 2:
                 continue
-            stamp = parts[1].split('.')[0]
+            # Берем всё после log_ или losses_ до расширения
+            stamp = parts[1].rsplit('.', 1)[0]
             stamps.setdefault(stamp, []).append(f)
 
         # Создаем архивы для каждого штампа
@@ -94,8 +97,11 @@ def recover():
             if not os.path.exists(zip_path):
                 with zipfile.ZipFile(zip_path, 'w') as zipf:
                     for f in file_list:
-                        zipf.write(os.path.join(dirpath, f), f)
-                        os.remove(os.path.join(dirpath, f))
+                        src_path = os.path.join(dirpath, f)
+                        if os.path.exists(src_path):
+                            zipf.write(src_path, f)
+                            os.remove(src_path)
+                print(f"[RECOVER] Created archive {zip_path}")
 
 
 async def continuous_ping(host, log_file, losses_file):
@@ -115,7 +121,8 @@ async def continuous_ping(host, log_file, losses_file):
 
 
 async def monitor_host(host):
-    current_stamp = datetime.now().strftime("%Y%m%d_%H_%M")
+    # ИЗМЕНЕНИЕ: единый формат YYYY-MM-DD_HH-MM для всех файлов
+    current_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
     current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -228,6 +235,7 @@ async def monitor_host(host):
 
         # 6. Часовая ротация
         if time.time() - last_rotation_time >= 3600:
+            # ИЗМЕНЕНИЕ: используем тот же формат для архива
             zip_name = f'archive_{current_stamp}.zip'
             zip_path = os.path.join(SENDING_DIR, zip_name)
             files_to_zip = [
@@ -239,7 +247,8 @@ async def monitor_host(host):
                     if os.path.exists(f):
                         os.remove(f)
 
-            current_stamp = datetime.now().strftime("%Y%m%d_%H_%M")
+            # ИЗМЕНЕНИЕ: новая временная метка в том же формате
+            current_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
             current_log_file = os.path.join(DATA_DIR, f'log_{current_stamp}.jsonl')
             current_losses_file = os.path.join(DATA_DIR, f'losses_{current_stamp}.json')
             open(current_log_file, 'a').close()
