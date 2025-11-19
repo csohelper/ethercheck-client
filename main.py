@@ -40,8 +40,8 @@ def save_losses(minute_key, sent_packets, received_packets, file_path):
     existing = lost_by_minute.get(minute_key, {"packets": 0, "reached": 0, "losses": 0.0})
     existing['packets'] += sent_packets
     existing['reached'] += received_packets
-    existing['losses'] = round(
-        100 * (existing['packets'] - existing['reached']) / existing['packets'], 2
+    existing['losses'] = (
+        existing['packets'] - existing['reached']
     ) if existing['packets'] > 0 else 0.0
 
     # Сохраняем только если есть реальные потери
@@ -156,7 +156,7 @@ async def monitor_host(host):
     minute_sent = 0
     minute_reached = 0
     last_trace_time = 0
-    last_rotation_time = time.time()
+    last_rotation_time = datetime.now()
 
     while True:
         start_time = time.time()
@@ -248,7 +248,7 @@ async def monitor_host(host):
             minute_reached = 0
 
         # 6. Часовая ротация
-        if time.time() - last_rotation_time >= 3600:
+        if (datetime.now() - last_rotation_time).total_seconds() >= 3600:
             # ИЗМЕНЕНИЕ: используем тот же формат для архива
             zip_name = f'archive_{current_stamp}.zip'
             zip_path = os.path.join(SENDING_DIR, zip_name)
@@ -270,7 +270,7 @@ async def monitor_host(host):
             open(current_ping_file, 'a').close()
             open(current_trace_file, 'a').close()
             lost_by_minute = {}
-            last_rotation_time = time.time()
+            last_rotation_time = datetime.now()
 
         # 7. Sleep с учетом времени выполнения
         elapsed = time.time() - start_time
