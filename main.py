@@ -20,7 +20,6 @@ def append_to_log(data, file_path):
             json.dump(data, f)
             f.write('\n')
             f.flush()  # Force flush to disk
-            print(json.dumps(data, indent=4))
         print(f"[LOG] Appended data to {file_path}, size now: {os.stat(file_path).st_size} bytes")
     except Exception as e:
         print(f"[ERROR] Failed to append log: {e}")
@@ -37,15 +36,12 @@ def save_losses(minute_key, sent_packets, received_packets, file_path):
     else:
         lost_by_minute = {}
 
-    existing = lost_by_minute.get(minute_key, {"packets": 0, "reached": 0, "losses": 0.0})
+    existing = lost_by_minute.get(minute_key, {"packets": 0, "reached": 0})
     existing['packets'] += sent_packets
     existing['reached'] += received_packets
-    existing['losses'] = (
-        existing['packets'] - existing['reached']
-    ) if existing['packets'] > 0 else 0.0
 
     # Сохраняем только если есть реальные потери
-    if existing['losses'] > 0.0:
+    if existing['packets'] == existing['reached']:
         lost_by_minute[minute_key] = existing
     elif minute_key in lost_by_minute:
         # Убираем старую запись с 0.0, если она есть
@@ -53,7 +49,7 @@ def save_losses(minute_key, sent_packets, received_packets, file_path):
 
     with open(file_path, 'w') as f:
         json.dump(lost_by_minute, f, indent=2)
-    if existing['losses'] > 0.0:
+    if existing['packets'] != existing['reached']:
         print(f"[LOSS] {minute_key}: {lost_by_minute[minute_key]}")
 
 
@@ -168,11 +164,9 @@ async def monitor_host(host):
         minute_reached += 1 if single_ping['avg_ms'] is not None else 0
 
         # 2. Всегда обновляем losses файл
-        losses_percent = round((minute_sent - minute_reached) / minute_sent * 100, 2) if minute_sent else 0
         lost_by_minute[current_minute] = {
             "packets": minute_sent,
-            "reached": minute_reached,
-            "losses": losses_percent
+            "reached": minute_reached
         }
         with open(current_losses_file, 'w') as f:
             json.dump(lost_by_minute, f, indent=2)
@@ -187,12 +181,9 @@ async def monitor_host(host):
             minute_sent += sent
             minute_reached += reached
 
-            # Обновляем losses
-            losses_percent = round((minute_sent - minute_reached) / minute_sent * 100, 2)
             lost_by_minute[current_minute] = {
                 "packets": minute_sent,
-                "reached": minute_reached,
-                "losses": losses_percent
+                "reached": minute_reached
             }
             with open(current_losses_file, 'w') as f:
                 json.dump(lost_by_minute, f, indent=2)
@@ -211,11 +202,9 @@ async def monitor_host(host):
                     minute_reached += 1 if ping_res['avg_ms'] is not None else 0
 
                     # Обновляем losses
-                    losses_percent = round((minute_sent - minute_reached) / minute_sent * 100, 2)
                     lost_by_minute[current_minute] = {
                         "packets": minute_sent,
-                        "reached": minute_reached,
-                        "losses": losses_percent
+                        "reached": minute_reached
                     }
                     with open(current_losses_file, 'w') as f:
                         json.dump(lost_by_minute, f, indent=2)
@@ -227,18 +216,15 @@ async def monitor_host(host):
 
         # 4. Периодический trace каждые 5 минут
         if time.time() - last_trace_time >= 300:
-            print('Tracing')
             trace_result = await async_trace(host)
             append_to_log(trace_result, current_trace_file)
             last_trace_time = time.time()
-            print(trace_result)
-            print('Traced')
 
         # 5. Проверка смены минуты
         new_minute = datetime.now().strftime("%Y-%m-%d %H:%M")
         if new_minute != current_minute:
             # Убираем старые минуты с 0% потерь
-            lost_by_minute = {k: v for k, v in lost_by_minute.items() if v['losses'] > 0.0}
+            lost_by_minute = {k: v for k, v in lost_by_minute.items() if v['packets'] != v['reached']}
             with open(current_losses_file, 'w') as f:
                 json.dump(lost_by_minute, f, indent=2)
 
@@ -248,7 +234,7 @@ async def monitor_host(host):
             minute_reached = 0
 
         # 6. Часовая ротация
-        if (datetime.now() - last_rotation_time).total_seconds() >= 3600:
+        if (datetime.now() - last_rotation_time).total_seconds() >= 1000:
             # ИЗМЕНЕНИЕ: используем тот же формат для архива
             zip_name = f'archive_{current_stamp}.zip'
             zip_path = os.path.join(SENDING_DIR, zip_name)

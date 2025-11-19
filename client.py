@@ -9,7 +9,7 @@ ROOM = int(os.getenv("ROOM", "536"))  # по умолчанию 536, если н
 # Адрес твоего Flask-приёмника
 SERVER_URL = os.getenv(
     "UPLOAD_SERVER",
-    "http://127.0.0.1:5890"  # ← замени на реальный IP/домен сервера
+    "http://monitor.slavapmk.ru"  # ← замени на реальный IP/домен сервера
 ).rstrip("/")
 
 # Таймауты (секунды)
