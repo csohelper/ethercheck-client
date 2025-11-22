@@ -4,13 +4,16 @@ from pathlib import Path
 
 import aiohttp
 
-ROOM = int(os.getenv("ROOM", "536"))  # по умолчанию 536, если не задано
+import config
 
-# Адрес твоего Flask-приёмника
-SERVER_URL = os.getenv(
-    "UPLOAD_SERVER",
-    "http://monitor.slavapmk.ru"  # ← замени на реальный IP/домен сервера
-).rstrip("/")
+ROOM = config.config.room
+if ROOM is None:
+    ROOM = int(os.getenv("room"))
+
+SERVER_URL = config.config.endpoint
+if SERVER_URL is None:
+    SERVER_URL = int(os.getenv("UPLOAD_SERVER"))
+SERVER_URL = SERVER_URL.rsplit('/')
 
 # Таймауты (секунды)
 TIMEOUT_CONNECT = 10
