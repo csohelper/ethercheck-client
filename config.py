@@ -14,7 +14,7 @@ class AppConfig(BaseModel):
 
 DEFAULT_CONFIG = AppConfig()
 
-CONFIG_PATH = Path("data/config.yaml")
+CONFIG_PATH = Path("config.yaml")
 
 
 def load_config() -> AppConfig:
