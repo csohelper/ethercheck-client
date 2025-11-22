@@ -8,16 +8,22 @@ import config
 
 ROOM = config.config.room
 if ROOM is None:
-    ROOM = int(os.getenv("room"))
+    env_room = os.getenv("room")
+    if env_room is None:
+        print("[ERROR] No room specified")
+        exit(1)
+    ROOM = int(env_room)
 
 SERVER_URL = config.config.endpoint
 if SERVER_URL is None:
-    SERVER_URL = int(os.getenv("UPLOAD_SERVER"))
-SERVER_URL = SERVER_URL.rsplit('/')
+    SERVER_URL = os.getenv("UPLOAD_SERVER")
+    if SERVER_URL is None:
+        print('[ERROR] No endpoint specified')
+        exit(1)
 
 # Таймауты (секунды)
-TIMEOUT_CONNECT = 10
-TIMUPLOAD_TOTAL = 300  # 5 минут на большой архив
+TIMEOUT_CONNECT = config.config.timing.timeouts.connect_secs
+TIMUPLOAD_TOTAL = config.config.timing.timeouts.upload_secs
 
 
 async def send_to_server(zip_path: str | Path) -> bool:

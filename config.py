@@ -7,9 +7,43 @@ import yaml
 from pydantic import Field, BaseModel, ValidationError
 
 
+class TimeoutsConfig(BaseModel):
+    connect_secs: int = Field(default=10)
+    upload_secs: int = Field(default=300)
+
+
+class TimingConfig(BaseModel):
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
+    trace_check_secs: int = Field(default=300)
+    rotation_secs: int = Field(default=1000)
+    sender_check_secs: int = Field(default=60)
+
+
+class ContiniousPingConfig(BaseModel):
+    packet_count: int = Field(default=1)
+    delay: int = Field(default=1)
+
+
+class CheckPingConfig(BaseModel):
+    packet_count: int = Field(default=10)
+
+
+class StandartPingConfig(BaseModel):
+    packet_count: int = Field(default=10)
+    delay: int = Field(default=1)
+
+
+class PingConfig(BaseModel):
+    standart: StandartPingConfig = Field(default_factory=StandartPingConfig)
+    check: CheckPingConfig = Field(default_factory=CheckPingConfig)
+    continious: ContiniousPingConfig = Field(default_factory=ContiniousPingConfig)
+
+
 class AppConfig(BaseModel):
     room: int | None = Field(default=None)
     endpoint: str = Field(default="https://monitor.slavapmk.ru")
+    timing: TimingConfig = Field(default_factory=TimingConfig)
+    ping: PingConfig = Field(default_factory=PingConfig)
 
 
 DEFAULT_CONFIG = AppConfig()
@@ -58,7 +92,7 @@ def load_config() -> AppConfig:
         return DEFAULT_CONFIG
 
 
-async def save_config(app_config: AppConfig):
+def save_config(app_config: AppConfig):
     try:
         print(f"Saving config to: {CONFIG_PATH}")
 

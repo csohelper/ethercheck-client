@@ -6,6 +6,7 @@ import time
 import zipfile
 from datetime import datetime
 
+import config
 from client import send_to_server
 from nettools import async_ping, async_trace  # async врапперы из nettools
 
@@ -23,34 +24,6 @@ def append_to_log(data, file_path):
         print(f"[LOG] Appended data to {file_path}, size now: {os.stat(file_path).st_size} bytes")
     except Exception as e:
         print(f"[ERROR] Failed to append log: {e}")
-
-
-def save_losses(minute_key, sent_packets, received_packets, file_path):
-    """Сохраняет потери пакетов с аккумулированием по минутам, не сохраняя 0% потерь"""
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            try:
-                lost_by_minute = json.load(f)
-            except json.JSONDecodeError:
-                lost_by_minute = {}
-    else:
-        lost_by_minute = {}
-
-    existing = lost_by_minute.get(minute_key, {"packets": 0, "reached": 0})
-    existing['packets'] += sent_packets
-    existing['reached'] += received_packets
-
-    # Сохраняем только если есть реальные потери
-    if existing['packets'] == existing['reached']:
-        lost_by_minute[minute_key] = existing
-    elif minute_key in lost_by_minute:
-        # Убираем старую запись с 0.0, если она есть
-        del lost_by_minute[minute_key]
-
-    with open(file_path, 'w') as f:
-        json.dump(lost_by_minute, f, indent=2)
-    if existing['packets'] != existing['reached']:
-        print(f"[LOSS] {minute_key}: {lost_by_minute[minute_key]}")
 
 
 def zip_files(zip_path, files):
@@ -98,32 +71,7 @@ def recover():
                 print(f"[RECOVER] Created archive {zip_path}")
 
 
-async def continuous_ping(host, ping_file, losses_file):
-    """Бесконечный цикл пингов каждые 2 сек до восстановления"""
-    print("[PING LOOP] Starting continuous ping until connection restores")
-    while True:
-
-        # Выполняем 10 пингов за раз
-        ping_res = await async_ping(host, count=10)
-        append_to_log(ping_res, ping_file)
-
-        # Сколько отправлено и успешно получено?
-        sent = 10
-        reached = len(ping_res['times_ms'])  # сколько ответило
-
-        minute_key = datetime.now().strftime("%Y-%m-%d %H:%M")
-        save_losses(minute_key, sent, reached, losses_file)
-
-        # Если ХОТЯ БЫ ОДИН пинг успешен — связь восстановлена
-        if reached > 0:
-            print("[PING LOOP] Connection restored!")
-            break
-
-        await asyncio.sleep(1)
-
-
 async def monitor_host(host):
-    # ИЗМЕНЕНИЕ: единый формат YYYY-MM-DD_HH-MM для всех файлов
     current_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     current_ping_file = os.path.join(DATA_DIR, f'ping_{current_stamp}.jsonl')
     current_trace_file = os.path.join(DATA_DIR, f'trace_{current_stamp}.jsonl')
@@ -157,13 +105,11 @@ async def monitor_host(host):
     while True:
         start_time = time.time()
 
-        # 1. Single ping
         single_ping = await async_ping(host, count=1)
         append_to_log(single_ping, current_ping_file)
         minute_sent += 1
         minute_reached += 1 if single_ping['avg_ms'] is not None else 0
 
-        # 2. Всегда обновляем losses файл
         lost_by_minute[current_minute] = {
             "packets": minute_sent,
             "reached": minute_reached
@@ -171,12 +117,10 @@ async def monitor_host(host):
         with open(current_losses_file, 'w') as f:
             json.dump(lost_by_minute, f, indent=2)
 
-        # 3. Если потеря соединения, выполняем полный пинг + trace + аварийный цикл
         if single_ping['avg_ms'] is None:
-            # Полный пинг 4 пакета
-            full_ping = await async_ping(host, count=4)
+            full_ping = await async_ping(host, count=config.config.ping.check.packet_count)
             append_to_log(full_ping, current_ping_file)
-            sent = 4
+            sent = config.config.ping.check.packet_count
             reached = len(full_ping['times_ms'])
             minute_sent += sent
             minute_reached += reached
@@ -189,19 +133,16 @@ async def monitor_host(host):
                 json.dump(lost_by_minute, f, indent=2)
 
             if reached < 4:
-                # Трассировка
                 trace_result = await async_trace(host)
                 append_to_log(trace_result, current_trace_file)
 
-                # Аварийный цикл пинга каждые 2 секунды
                 print("[PING LOOP] Starting continuous ping until connection restores")
                 while True:
-                    ping_res = await async_ping(host, count=1)
+                    ping_res = await async_ping(host, count=config.config.ping.continious.packet_count)
                     append_to_log(ping_res, current_ping_file)
-                    minute_sent += 1
-                    minute_reached += 1 if ping_res['avg_ms'] is not None else 0
+                    minute_sent += config.config.ping.continious.packet_count
+                    minute_reached += len(ping_res['times_ms'])
 
-                    # Обновляем losses
                     lost_by_minute[current_minute] = {
                         "packets": minute_sent,
                         "reached": minute_reached
@@ -212,30 +153,24 @@ async def monitor_host(host):
                     if ping_res['avg_ms'] is not None:
                         print("[PING LOOP] Connection restored!")
                         break
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(config.config.ping.continious.delay)
 
-        # 4. Периодический trace каждые 5 минут
-        if time.time() - last_trace_time >= 300:
+        if time.time() - last_trace_time >= config.config.timing.trace_check_secs:
             trace_result = await async_trace(host)
             append_to_log(trace_result, current_trace_file)
             last_trace_time = time.time()
 
-        # 5. Проверка смены минуты
         new_minute = datetime.now().strftime("%Y-%m-%d %H:%M")
         if new_minute != current_minute:
-            # Убираем старые минуты с 0% потерь
             lost_by_minute = {k: v for k, v in lost_by_minute.items() if v['packets'] != v['reached']}
             with open(current_losses_file, 'w') as f:
                 json.dump(lost_by_minute, f, indent=2)
 
-            # Сброс счетчиков
             current_minute = new_minute
             minute_sent = 0
             minute_reached = 0
 
-        # 6. Часовая ротация
-        if (datetime.now() - last_rotation_time).total_seconds() >= 1000:
-            # ИЗМЕНЕНИЕ: используем тот же формат для архива
+        if (datetime.now() - last_rotation_time).total_seconds() >= config.config.timing.rotation_secs:
             zip_name = f'archive_{current_stamp}.zip'
             zip_path = os.path.join(SENDING_DIR, zip_name)
             files_to_zip = [
@@ -248,7 +183,6 @@ async def monitor_host(host):
                     if os.path.exists(f):
                         os.remove(f)
 
-            # ИЗМЕНЕНИЕ: новая временная метка в том же формате
             current_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
             current_ping_file = os.path.join(DATA_DIR, f'ping_{current_stamp}.jsonl')
             current_trace_file = os.path.join(DATA_DIR, f'trace_{current_stamp}.jsonl')
@@ -258,9 +192,8 @@ async def monitor_host(host):
             lost_by_minute = {}
             last_rotation_time = datetime.now()
 
-        # 7. Sleep с учетом времени выполнения
         elapsed = time.time() - start_time
-        await asyncio.sleep(max(0.0, 10.0 - elapsed))
+        await asyncio.sleep(max(0.0, config.config.ping.standart.delay - elapsed))
 
 
 async def periodic_sender():
@@ -270,7 +203,7 @@ async def periodic_sender():
     """
     os.makedirs(SENT_DIR, exist_ok=True)
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(config.config.timing.sender_check_secs)
 
         zip_files = [f for f in os.listdir(SENDING_DIR) if f.endswith('.zip')]
         if zip_files:
