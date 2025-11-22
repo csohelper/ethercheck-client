@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import shutil
 import time
 import zipfile
 from datetime import datetime
@@ -12,7 +11,6 @@ from nettools import async_ping, async_trace  # async врапперы из nett
 
 DATA_DIR = 'data'
 SENDING_DIR = 'sending'
-SENT_DIR = 'sent'
 
 
 def append_to_log(data, file_path):
@@ -105,10 +103,10 @@ async def monitor_host(host):
     while True:
         start_time = time.time()
 
-        single_ping = await async_ping(host, count=1)
-        append_to_log(single_ping, current_ping_file)
-        minute_sent += 1
-        minute_reached += 1 if single_ping['avg_ms'] is not None else 0
+        default_ping = await async_ping(host, count=config.config.ping.standart.packet_count)
+        append_to_log(default_ping, current_ping_file)
+        minute_sent += config.config.ping.standart.packet_count
+        minute_reached += len(default_ping['times_ms'])
 
         lost_by_minute[current_minute] = {
             "packets": minute_sent,
@@ -117,7 +115,7 @@ async def monitor_host(host):
         with open(current_losses_file, 'w') as f:
             json.dump(lost_by_minute, f, indent=2)
 
-        if single_ping['avg_ms'] is None:
+        if len(default_ping['times_ms']) < config.config.ping.standart.packet_count:
             full_ping = await async_ping(host, count=config.config.ping.check.packet_count)
             append_to_log(full_ping, current_ping_file)
             sent = config.config.ping.check.packet_count
@@ -132,7 +130,7 @@ async def monitor_host(host):
             with open(current_losses_file, 'w') as f:
                 json.dump(lost_by_minute, f, indent=2)
 
-            if reached < 4:
+            if reached < config.config.ping.check.packet_count:
                 trace_result = await async_trace(host)
                 append_to_log(trace_result, current_trace_file)
 
@@ -201,7 +199,6 @@ async def periodic_sender():
     Периодически проверяет папку sending и пытается отправить архивы на сервер.
     Перемещает в sent только успешно отправленные файлы.
     """
-    os.makedirs(SENT_DIR, exist_ok=True)
     while True:
         await asyncio.sleep(config.config.timing.sender_check_secs)
 
@@ -214,9 +211,8 @@ async def periodic_sender():
             print(f"[SENDER] Processing {f}")
 
             if await send_to_server(zip_path):
-                dest_path = os.path.join(SENT_DIR, f)
-                shutil.move(zip_path, dest_path)
-                print(f"[SENDER] Moved {f} to sent directory")
+                os.remove(zip_path)
+                print(f"[SENDER] Deleted sent file {f}")
             else:
                 print(f"[SENDER] Keeping {f} in sending directory for retry")
 
@@ -224,7 +220,6 @@ async def periodic_sender():
 async def main(host):
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(SENDING_DIR, exist_ok=True)
-    os.makedirs(SENT_DIR, exist_ok=True)
 
     recover()
     await asyncio.gather(

@@ -29,8 +29,8 @@ class CheckPingConfig(BaseModel):
 
 
 class StandartPingConfig(BaseModel):
-    packet_count: int = Field(default=10)
-    delay: int = Field(default=1)
+    packet_count: int = Field(default=2)
+    delay: int = Field(default=10)
 
 
 class PingConfig(BaseModel):
