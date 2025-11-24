@@ -1,30 +1,22 @@
 import asyncio
 import json
+import logger
 import logging
 import os
 import sys
 import time
 import zipfile
 from datetime import datetime
+import queue
+import atexit
 
-import config
 from client import send_to_server
 from nettools import async_ping, async_trace  # async врапперы из nettools
 
 DATA_DIR = 'data'
 SENDING_DIR = 'sending'
 
-# Абсолютный путь для лога (измените на ваш, например, в папке проекта или C:\Temp)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-log_file = os.path.join(script_dir, 'app.log')
-
-# Настройка логирования (сразу, до любого другого кода)
-logging.basicConfig(
-    filename=log_file,
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filemode='a'  # Добавьте 'a' для append, чтобы не перезаписывать
-)
+import config
 
 
 def append_to_log(data, file_path):
@@ -243,6 +235,7 @@ async def main(host):
 
 
 if __name__ == "__main__":
+    print("Starting")
     try:
         logging.info("Скрипт запущен. Директория: %s", script_dir)
         asyncio.run(main('1.1.1.1'))

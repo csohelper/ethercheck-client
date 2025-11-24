@@ -1,4 +1,5 @@
 .idea/
 data/
 sending/
-config.yaml
+config1.yaml
+app.log
