@@ -237,7 +237,7 @@ async def main(host):
 if __name__ == "__main__":
     print("Starting")
     try:
-        logging.info("Скрипт запущен. Директория: %s", script_dir)
+        logging.info("Скрипт запущен. Директория: %s", logger.script_dir)
         asyncio.run(main('1.1.1.1'))
     except Exception as e:
         logging.error("Критическая ошибка: %s", e, exc_info=True)
