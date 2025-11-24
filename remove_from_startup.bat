@@ -13,14 +13,6 @@ if exist "%SHORTCUT_PATH%" (
     echo Shortcut not found in startup.
 )
 
-:: Delete from registry (in case old method was used)
-reg delete "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "MyBackgroundScript" /f >nul 2>&1
-if %errorlevel% equ 0 (
-    echo Entry removed from registry.
-) else (
-    echo Entry not found in registry.
-)
-
 echo Operation completed.
 pause
 
