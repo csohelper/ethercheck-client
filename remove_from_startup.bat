@@ -3,7 +3,7 @@ setlocal
 
 :: Delete shortcut from Startup
 set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "SHORTCUT_NAME=MyBackgroundScript.lnk"
+set "SHORTCUT_NAME=InternetMonitoring.lnk"
 set "SHORTCUT_PATH=%STARTUP_FOLDER%\%SHORTCUT_NAME%"
 
 if exist "%SHORTCUT_PATH%" (

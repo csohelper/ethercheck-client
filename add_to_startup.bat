@@ -23,7 +23,7 @@ if %errorlevel% neq 0 (
 
 :: Папка автозагрузки
 set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "SHORTCUT_NAME=MyBackgroundScript.lnk"
+set "SHORTCUT_NAME=InternetMonitoring.lnk"
 set "SHORTCUT_PATH=%STARTUP_FOLDER%\%SHORTCUT_NAME%"
 
 :: Лог-файл (опционально, для отладки)
