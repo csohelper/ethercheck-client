@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 import os
+import sys
 import time
 import zipfile
 from datetime import datetime
@@ -12,6 +14,18 @@ from nettools import async_ping, async_trace  # async врапперы из nett
 DATA_DIR = 'data'
 SENDING_DIR = 'sending'
 
+# Абсолютный путь для лога (измените на ваш, например, в папке проекта или C:\Temp)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+log_file = os.path.join(script_dir, 'app.log')
+
+# Настройка логирования (сразу, до любого другого кода)
+logging.basicConfig(
+    filename=log_file,
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filemode='a'  # Добавьте 'a' для append, чтобы не перезаписывать
+)
+
 
 def append_to_log(data, file_path):
     try:
@@ -19,9 +33,9 @@ def append_to_log(data, file_path):
             json.dump(data, f)
             f.write('\n')
             f.flush()  # Force flush to disk
-        print(f"[LOG] Appended data to {file_path}, size now: {os.stat(file_path).st_size} bytes")
+        logging.info(f"[LOG] Appended data to {file_path}, size now: {os.stat(file_path).st_size} bytes")
     except Exception as e:
-        print(f"[ERROR] Failed to append log: {e}")
+        logging.info(f"[ERROR] Failed to append log: {e}")
 
 
 def zip_files(zip_path, files):
@@ -30,10 +44,10 @@ def zip_files(zip_path, files):
             for src, arcname in files:
                 if os.path.exists(src):
                     zipf.write(src, arcname)
-        print(f"[ZIP] Created zip {zip_path}")
+        logging.info(f"[ZIP] Created zip {zip_path}")
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to zip files: {e}")
+        logging.info(f"[ERROR] Failed to zip files: {e}")
         return False
 
 
@@ -66,7 +80,7 @@ def recover():
                         if os.path.exists(src_path):
                             zipf.write(src_path, f)
                             os.remove(src_path)
-                print(f"[RECOVER] Created archive {zip_path}")
+                logging.info(f"[RECOVER] Created archive {zip_path}")
 
 
 async def monitor_host(host):
@@ -79,18 +93,18 @@ async def monitor_host(host):
 
     if not os.path.exists(current_ping_file):
         open(current_ping_file, 'a').close()
-        print(f"[INFO] Created ping file {current_ping_file}")
+        logging.info(f"[INFO] Created ping file {current_ping_file}")
 
     if not os.path.exists(current_trace_file):
         open(current_trace_file, 'a').close()
-        print(f"[INFO] Created trace file {current_trace_file}")
+        logging.info(f"[INFO] Created trace file {current_trace_file}")
 
     lost_by_minute = {}
     if os.path.exists(current_losses_file):
         with open(current_losses_file, 'r') as f:
             try:
                 lost_by_minute = json.load(f)
-                print(f"[INFO] Loaded existing losses from {current_losses_file}")
+                logging.info(f"[INFO] Loaded existing losses from {current_losses_file}")
             except json.JSONDecodeError:
                 lost_by_minute = {}
 
@@ -134,7 +148,7 @@ async def monitor_host(host):
                 trace_result = await async_trace(host)
                 append_to_log(trace_result, current_trace_file)
 
-                print("[PING LOOP] Starting continuous ping until connection restores")
+                logging.info("[PING LOOP] Starting continuous ping until connection restores")
                 while True:
                     ping_res = await async_ping(host, count=config.config.ping.continious.packet_count)
                     append_to_log(ping_res, current_ping_file)
@@ -149,7 +163,7 @@ async def monitor_host(host):
                         json.dump(lost_by_minute, f, indent=2)
 
                     if ping_res['avg_ms'] is not None:
-                        print("[PING LOOP] Connection restored!")
+                        logging.info("[PING LOOP] Connection restored!")
                         break
                     await asyncio.sleep(config.config.ping.continious.delay)
 
@@ -204,17 +218,17 @@ async def periodic_sender():
 
         zip_files = [f for f in os.listdir(SENDING_DIR) if f.endswith('.zip')]
         if zip_files:
-            print(f"[SENDER] Found {len(zip_files)} archive(s) to send")
+            logging.info(f"[SENDER] Found {len(zip_files)} archive(s) to send")
 
         for f in zip_files:
             zip_path = os.path.join(SENDING_DIR, f)
-            print(f"[SENDER] Processing {f}")
+            logging.info(f"[SENDER] Processing {f}")
 
             if await send_to_server(zip_path):
                 os.remove(zip_path)
-                print(f"[SENDER] Deleted sent file {f}")
+                logging.info(f"[SENDER] Deleted sent file {f}")
             else:
-                print(f"[SENDER] Keeping {f} in sending directory for retry")
+                logging.info(f"[SENDER] Keeping {f} in sending directory for retry")
 
 
 async def main(host):
@@ -229,4 +243,11 @@ async def main(host):
 
 
 if __name__ == "__main__":
-    asyncio.run(main('1.1.1.1'))
+    try:
+        logging.info("Скрипт запущен. Директория: %s", script_dir)
+        asyncio.run(main('1.1.1.1'))
+    except Exception as e:
+        logging.error("Критическая ошибка: %s", e, exc_info=True)
+        # Опционально: вывести в консоль для теста
+        print(f"Error: {e}", file=sys.stderr)
+        exit(1)

@@ -10,7 +10,7 @@ ROOM = config.config.room
 if ROOM is None:
     env_room = os.getenv("room")
     if env_room is None:
-        print("[ERROR] No room specified")
+        logging.info("[ERROR] No room specified")
         exit(1)
     ROOM = int(env_room)
 
@@ -18,7 +18,7 @@ SERVER_URL = config.config.endpoint
 if SERVER_URL is None:
     SERVER_URL = os.getenv("UPLOAD_SERVER")
     if SERVER_URL is None:
-        print('[ERROR] No endpoint specified')
+        logging.info('[ERROR] No endpoint specified')
         exit(1)
 
 # Таймауты (секунды)
@@ -33,11 +33,11 @@ async def send_to_server(zip_path: str | Path) -> bool:
     """
     zip_path = Path(zip_path)
     if not zip_path.is_file():
-        print(f"[SEND] File not found: {zip_path}")
+        logging.info(f"[SEND] File not found: {zip_path}")
         return False
 
     url = f"{SERVER_URL}/upload/{ROOM}/"
-    print(f"[SEND] Sending {zip_path.name} ({zip_path.stat().st_size // 1024} KB) → {url}")
+    logging.info(f"[SEND] Sending {zip_path.name} ({zip_path.stat().st_size // 1024} KB) → {url}")
 
     # Формируем multipart-данные вручную, чтобы контролировать имя поля и filename
     data = aiohttp.FormData()
@@ -57,19 +57,19 @@ async def send_to_server(zip_path: str | Path) -> bool:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, data=data) as resp:
                 if resp.status == 200:
-                    print(f"[SEND] Successfully sent {zip_path.name}")
+                    logging.info(f"[SEND] Successfully sent {zip_path.name}")
                     return True
                 else:
                     text = await resp.text()
-                    print(f"[SEND] Server returned {resp.status}: {text}")
+                    logging.info(f"[SEND] Server returned {resp.status}: {text}")
                     return False
 
     except aiohttp.ClientResponseError as e:
-        print(f"[SEND] HTTP error {e.status}: {e.message}")
+        logging.info(f"[SEND] HTTP error {e.status}: {e.message}")
         return False
     except asyncio.TimeoutError:
-        print(f"[SEND] Timeout while sending {zip_path}")
+        logging.info(f"[SEND] Timeout while sending {zip_path}")
         return False
     except Exception as e:
-        print(f"[ERROR] Unexpected error while sending {zip_path}: {e}")
+        logging.info(f"[ERROR] Unexpected error while sending {zip_path}: {e}")
         return False

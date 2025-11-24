@@ -1,21 +1,21 @@
 @echo off
 setlocal
 
-:: Получить полный путь к main.py
+:: Get full path to main.py
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_PATH=%SCRIPT_DIR%main.py"
 
-:: Проверить, существует ли main.py
+:: Check if main.py exists
 if not exist "%SCRIPT_PATH%" (
-    echo Ошибка: main.py не найден в той же папке, что и add_to_startup.bat
+    echo Error: main.py not found in the same folder as add_to_startup.bat
     pause
     exit /b 1
 )
 
-:: Найти pythonw.exe
+:: Find pythonw.exe
 where pythonw.exe >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Ошибка: pythonw.exe не найден в PATH. Убедитесь, что Python установлен и добавлен в PATH.
+    echo Error: pythonw.exe not found in PATH. Ensure Python is installed and added to PATH.
     pause
     exit /b 1
 )
@@ -23,9 +23,23 @@ if %errorlevel% neq 0 (
 for /f "tokens=*" %%i in ('where pythonw.exe') do set "PYTHONW_PATH=%%i" & goto :found
 
 :found
-:: Теперь добавляем в реестр
-reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "MyBackgroundScript" /t REG_SZ /d "\"%PYTHONW_PATH%\" \"%SCRIPT_PATH%\"" /f
+:: Startup folder
+set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+set "SHORTCUT_NAME=MyBackgroundScript.lnk"
+set "SHORTCUT_PATH=%STARTUP_FOLDER%\%SHORTCUT_NAME%"
 
-echo Скрипт добавлен в автозагрузку.
+:: Create shortcut using PowerShell in a single line
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $shortcut = $ws.CreateShortcut('%SHORTCUT_PATH%'); $shortcut.TargetPath = '%SCRIPT_DIR%run_script.bat'; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.WindowStyle = 7; $shortcut.Save();"
+
+if exist "%SHORTCUT_PATH%" (
+    echo Shortcut added to startup: %SHORTCUT_PATH%
+) else (
+    echo Error: Failed to create shortcut.
+    pause
+    exit /b 1
+)
+
+echo "To check: Open Task Manager > Startup tab."
+pause
 
 endlocal
