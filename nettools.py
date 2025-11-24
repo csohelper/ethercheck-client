@@ -4,6 +4,10 @@ import platform
 import re
 import subprocess
 
+# Для Windows: импортируем CREATE_NO_WINDOW только если на Windows
+if platform.system().lower() == "windows":
+    from subprocess import CREATE_NO_WINDOW
+
 
 async def async_ping(host, count=4):
     loop = asyncio.get_running_loop()
@@ -153,6 +157,7 @@ def parse_linux_ip_addr(output):
         interfaces.append(current_interface)
 
     # Для gateway — отдельно вызовем ip route
+    # Поскольку это Linux, нет нужды в creationflags
     route_proc = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
     route_output = route_proc.stdout
     for line in route_output.splitlines():
@@ -233,6 +238,7 @@ def parse_macos_ifconfig(output):
         interfaces.append(current_interface)
 
     # Для gateway — используем netstat -rn
+    # Поскольку это macOS, нет нужды в creationflags
     route_proc = subprocess.run(["netstat", "-rn"], capture_output=True, text=True)
     route_output = route_proc.stdout
     for line in route_output.splitlines():
@@ -264,12 +270,18 @@ def ping(host, count=4):
     # Кодировка для Windows — cp866 (даже если система русская)
     encoding = "cp866" if system == "windows" else "utf-8"
 
+    # Добавляем флаг для скрытия окна на Windows
+    kwargs = {}
+    if system == "windows":
+        kwargs['creationflags'] = CREATE_NO_WINDOW
+
     proc = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         encoding=encoding,
-        errors="replace"
+        errors="replace",
+        **kwargs
     )
     output = proc.stdout
 
@@ -303,7 +315,8 @@ def ping(host, count=4):
         capture_output=True,
         text=True,
         encoding=encoding,
-        errors="replace"
+        errors="replace",
+        **kwargs
     )
     network_output = network_proc.stdout
 
@@ -349,7 +362,19 @@ def trace(host):
         cmd = ["traceroute", host]
         encoding = "utf-8"
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding, errors="replace")
+    # Добавляем флаг для скрытия окна на Windows
+    kwargs = {}
+    if system == "windows":
+        kwargs['creationflags'] = CREATE_NO_WINDOW
+
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding=encoding,
+        errors="replace",
+        **kwargs
+    )
     output = proc.stdout
     hops = []
 
@@ -413,7 +438,8 @@ def trace(host):
         capture_output=True,
         text=True,
         encoding=encoding,
-        errors="replace"
+        errors="replace",
+        **kwargs
     )
     network_output = network_proc.stdout
 
