@@ -46,14 +46,4 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
 
-## Check if service was created and started
-#if sudo systemctl status "$SERVICE_NAME" > /dev/null 2>&1; then
-#    echo "Service added to startup: $SERVICE_NAME"
-#    echo "To check: Run 'systemctl status $SERVICE_NAME' or check Task Manager equivalent (htop or systemd tools)."
-#else
-#    echo "Error: Failed to create or start service."
-#    read -p "Press Enter to exit..."
-#    exit 1
-#fi
-
 read -p "Press Enter to continue..."

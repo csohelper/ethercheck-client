@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Service name and path
-SERVICE_NAME="internetmonitoring.service"
+SERVICE_NAME="internetmonitoring4.service"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 
 # Stop and disable the service if it exists
