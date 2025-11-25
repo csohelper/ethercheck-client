@@ -1,22 +1,18 @@
+from datetime import datetime
+from client import send_to_server
+from nettools import async_ping, async_trace
 import asyncio
 import json
-import logger
 import logging
 import os
 import sys
 import time
 import zipfile
-from datetime import datetime
-import queue
-import atexit
-
-from client import send_to_server
-from nettools import async_ping, async_trace  # async врапперы из nettools
+import logger
+import config
 
 DATA_DIR = 'data'
 SENDING_DIR = 'sending'
-
-import config
 
 
 def append_to_log(data, file_path):
