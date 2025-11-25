@@ -1,3 +1,4 @@
+import random
 from datetime import datetime
 from client import send_to_server
 from nettools import async_ping, async_trace
@@ -169,7 +170,6 @@ async def monitor_host(host):
             current_minute = new_minute
             minute_sent = 0
             minute_reached = 0
-
         if (datetime.now() - last_rotation_time).total_seconds() >= config.config.timing.rotation_secs:
             zip_name = f'archive_{current_stamp}.zip'
             zip_path = os.path.join(SENDING_DIR, zip_name)
