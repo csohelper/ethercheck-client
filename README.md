@@ -17,9 +17,9 @@
 
 # Установка
 
-### Windows
-
 Для подключения к мониторингу интернета выполните следующие действия
+
+### Windows
 
 1. **Установите на компьютер Python**
     1. Скачайте [Windows Installer x64](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe)
