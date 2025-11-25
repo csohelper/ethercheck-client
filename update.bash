@@ -1,5 +1,5 @@
 #!/bin/bash
 
-python3 main.py
+git pull
 
 read -p "Press Enter to continue..."
