@@ -1,7 +1,3 @@
-import random
-from datetime import datetime
-from client import send_to_server
-from nettools import async_ping, async_trace
 import asyncio
 import json
 import logging
@@ -9,8 +5,12 @@ import os
 import sys
 import time
 import zipfile
-import logger
+from datetime import datetime
+
 import config
+import logger
+from client import send_to_server
+from nettools import async_ping, async_trace
 
 DATA_DIR = 'data'
 SENDING_DIR = 'sending'
