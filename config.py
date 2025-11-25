@@ -41,7 +41,7 @@ class PingConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    room: str = Field(default=None)
+    room: str | int | None = Field(default=None)
     endpoint: str = Field(default="https://monitor.slavapmk.ru")
     timing: TimingConfig = Field(default_factory=TimingConfig)
     ping: PingConfig = Field(default_factory=PingConfig)
