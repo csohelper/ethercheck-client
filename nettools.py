@@ -1,4 +1,6 @@
 import asyncio
+import ipaddress
+import logging
 from datetime import datetime
 import platform
 import re
@@ -93,43 +95,49 @@ def parse_windows_ipconfig(output):
     return working_interfaces
 
 
-def parse_linux_ip_addr(output):
+def parse_linux_ip_addr(output: str, include_only_up_and_with_ip: bool = False) -> list[dict]:
     """
-    Парсит вывод ip addr show в список интерфейсов.
+    Парсит вывод `ip addr show` в список интерфейсов.
+    Возвращает список словарей с полями:
+      - name, description, mac, ipv4, netmask, gateway, dhcp_server, status, inferred_type
+    Если include_only_up_and_with_ip=True — вернёт только интерфейсы с status == "up" и (ipv4 или mac).
     """
-    interfaces = []
-    current_interface = None
+    interfaces: list[dict] = []
+    current_interface: dict | None = None
+
     lines = output.splitlines()
-
-    for line in lines:
-        line = line.strip()
-
-        # Начало нового интерфейса: "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 ..."
-        if re.match(r'^\d+:\s', line):
+    for raw_line in lines:
+        line = raw_line.strip()
+        # Начало нового интерфейса: "2: eth0: <...>"
+        m = re.match(r'^(\d+):\s+([^:]+):', line)
+        if m:
+            # если был предыдущий интерфейс — сохранить
             if current_interface:
                 interfaces.append(current_interface)
-            name = line.split(':', 1)[1].split()[0].strip()
+
+            name = m.group(2).split('@', 1)[0]  # убрать @ifX суффикс, если есть
             status_match = re.search(r'<(.*?)>', line)
-            status = "up" if status_match and "UP" in status_match.group(1) else "down"
+            flags = status_match.group(1) if status_match else ""
+            status = "up" if re.search(r'\bUP\b', flags, flags=re.IGNORECASE) else "down"
+
             current_interface = {
                 "name": name,
                 "description": None,
                 "mac": None,
                 "ipv4": None,
                 "netmask": None,
-                "gateway": None,  # ip addr не показывает gateway, для этого route
-                "dhcp_server": None,  # Не в ip addr
+                "gateway": None,
+                "dhcp_server": None,
                 "status": status,
                 "inferred_type": "unknown"
             }
 
-            # Определяем тип по имени
             lower_name = name.lower()
-            if lower_name.startswith("wlan") or lower_name.startswith("wifi"):
+            if lower_name.startswith(("wlan", "wifi")):
                 current_interface["inferred_type"] = "wifi"
-            elif lower_name.startswith("eth") or lower_name.startswith("en"):
+            elif lower_name.startswith(("eth", "en", "eno", "ens", "enp")):
                 current_interface["inferred_type"] = "ethernet"
-            elif lower_name.startswith("tun") or lower_name.startswith("tap") or "vpn" in lower_name:
+            elif lower_name.startswith(("tun", "tap")) or "vpn" in lower_name:
                 current_interface["inferred_type"] = "vpn"
             elif lower_name == "lo":
                 current_interface["inferred_type"] = "loopback"
@@ -139,42 +147,59 @@ def parse_linux_ip_addr(output):
         if not current_interface:
             continue
 
-        # link/ether aa:bb:cc:dd:ee:ff brd ff:ff:ff:ff:ff:ff
-        if line.startswith("link/ether"):
-            current_interface["mac"] = line.split()[1]
+        # link/* может быть link/ether, link/loopback и т.д.
+        if line.startswith("link/"):
+            parts = line.split()
+            if len(parts) >= 2:
+                mac_candidate = parts[1]
+                # простой валидационный чек MAC
+                if re.match(r'^([0-9a-f]{2}:){5}[0-9a-f]{2}$', mac_candidate, re.IGNORECASE):
+                    current_interface["mac"] = mac_candidate
 
-        # inet 192.168.1.100/24 brd 192.168.1.255 scope global eth0
+        # inet 192.168.1.100/24 ...
         elif line.startswith("inet "):
-            ip_cidr = line.split()[1]
-            ipv4, netmask_bits = ip_cidr.split('/')
-            current_interface["ipv4"] = ipv4
-            # Преобразуем /24 в 255.255.255.0
-            netmask = '.'.join(
-                [str((0xffffffff << (32 - int(netmask_bits) - i * 8) & 0xffffffff) >> 24) for i in range(4)][::-1])
-            current_interface["netmask"] = netmask
+            parts = line.split()
+            if len(parts) >= 2:
+                ip_cidr = parts[1]
+                if '/' in ip_cidr:
+                    ipv4, netmask_bits = ip_cidr.split('/', 1)
+                    current_interface["ipv4"] = ipv4
+                    try:
+                        # безопасно получить маску через ipaddress
+                        netmask = str(ipaddress.IPv4Network(f"0.0.0.0/{int(netmask_bits)}").netmask)
+                        current_interface["netmask"] = netmask
+                    except Exception as e:
+                        logging.debug("Не удалось преобразовать префикс %r: %s", netmask_bits, e)
 
+    # добавить последний интерфейс
     if current_interface:
         interfaces.append(current_interface)
 
-    # Для gateway — отдельно вызовем ip route
-    # Поскольку это Linux, нет нужды в creationflags
-    route_proc = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
-    route_output = route_proc.stdout
-    for line in route_output.splitlines():
-        if line.startswith("default via"):
-            gateway = line.split()[2]
-            dev = line.split("dev ")[1].split()[0]
-            for iface in interfaces:
-                if iface["name"] == dev:
-                    iface["gateway"] = gateway
+    # Парсим ip route для получения gateway — безопаснее с regex
+    try:
+        route_proc = subprocess.run(["ip", "route", "show"], capture_output=True, text=True, check=False)
+        route_output = route_proc.stdout or ""
+        for line in route_output.splitlines():
+            # пример: "default via 192.168.1.1 dev eth0 proto dhcp ..."
+            m = re.match(r'^\s*default\s+via\s+(\S+)\s+dev\s+(\S+)', line)
+            if m:
+                gateway = m.group(1)
+                dev = m.group(2)
+                for iface in interfaces:
+                    if iface.get("name") == dev:
+                        iface["gateway"] = gateway
+    except FileNotFoundError:
+        logging.debug("Команда 'ip' не найдена в PATH.")
+    except Exception as e:
+        logging.debug("Ошибка при выполнении 'ip route': %s", e)
 
-    # Фильтруем "рабочие" — up и с IPv4 или MAC
-    working_interfaces = [
-        iface for iface in interfaces
-        if iface["status"] == "up" and (iface["ipv4"] or iface["mac"])
-    ]
+    if include_only_up_and_with_ip:
+        return [
+            iface for iface in interfaces
+            if iface.get("status") == "up" and (iface.get("ipv4") or iface.get("mac"))
+        ]
 
-    return working_interfaces
+    return interfaces
 
 
 def parse_macos_ifconfig(output):
