@@ -1,5 +1,6 @@
 #!/bin/bash
 
-pip3 install -r requirements.txt
-
-read -p "Press Enter to continue..."
+apt install python3-venv python3-pip -y
+python3 -m venv venv
+source venv/bin/activate
+pip3 install -r requirements.txt --break-system-packages

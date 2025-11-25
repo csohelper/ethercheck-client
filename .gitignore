@@ -3,3 +3,5 @@ data/
 sending/
 config.yaml
 app.log
+__pycache__/
+venv/

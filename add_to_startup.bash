@@ -20,7 +20,7 @@ if [ -z "$PYTHON_PATH" ]; then
 fi
 
 # Service name and path
-SERVICE_NAME="internetmonitoring.service"
+SERVICE_NAME="internetmonitoring4.service"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 
 # Log file (optional, for debugging)
@@ -32,7 +32,7 @@ sudo bash -c "cat > \"$SERVICE_PATH\" <<EOF
 Description=Internet Monitoring Script
 
 [Service]
-ExecStart=$PYTHON_PATH $SCRIPT_PATH > \"$LOG_FILE\" 2>&1
+ExecStart=source $SCRIPT_DIR/venv/bin/activate; $PYTHON_PATH $SCRIPT_PATH > \"$LOG_FILE\" 2>&1
 WorkingDirectory=$SCRIPT_DIR
 Restart=always
 User=$(whoami)

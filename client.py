@@ -13,7 +13,7 @@ if ROOM is None:
     if env_room is None:
         logging.info("[ERROR] No room specified")
         exit(1)
-    ROOM = int(env_room)
+    ROOM = str(env_room)
 
 SERVER_URL = config.config.endpoint
 if SERVER_URL is None:
