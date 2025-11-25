@@ -322,7 +322,7 @@ def ping(host, count=4):
         times = [float(t) for t in matches]
     else:
         # Linux/macOS — стандартный вывод
-        matches = re.findall(r'time[=<]?\s*([\d.]+)\s*ms', output)
+        matches = re.findall(r'time[=<]\s*([\d.]+)\s*ms', output)
         times = [float(t) for t in matches]
 
     avg_ms = sum(times) / len(times) if times else None
